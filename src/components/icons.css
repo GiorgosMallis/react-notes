@@ -1,0 +1,67 @@
+/* Material Icons specific styling */
+.material-icons {
+  font-family: 'Material Icons' !important;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  display: inline-block;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  white-space: nowrap;
+  direction: ltr;
+  vertical-align: middle;
+  
+  /* Support for all WebKit browsers. */
+  -webkit-font-smoothing: antialiased;
+  
+  /* Support for Safari and Chrome. */
+  text-rendering: optimizeLegibility;
+  
+  /* Support for Firefox. */
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Support for IE. */
+  font-feature-settings: 'liga';
+}
+
+/* Icon sizes */
+.material-icons.md-18 { font-size: 18px; }
+.material-icons.md-24 { font-size: 24px; }
+.material-icons.md-36 { font-size: 36px; }
+.material-icons.md-48 { font-size: 48px; }
+
+/* Sidebar specific icon fixes */
+.sidebar-section-title .material-icons,
+.filter-button .material-icons,
+.sidebar-actions .material-icons {
+  margin-right: 8px;
+}
+
+/* Fix for filter and category labels */
+.filter-label, .category-label, .tag-label {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+/* Ensure proper spacing in sidebar items */
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.sidebar-item .material-icons {
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.sidebar-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
