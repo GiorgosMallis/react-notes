@@ -5,513 +5,413 @@ import { Note } from './types';
 import NoteItem from './components/NoteItem';
 import NoteForm from './components/NoteForm';
 import ThemeToggle from './components/ThemeToggle';
+import { useAuth } from './contexts/AuthContext';
+import AuthContainer from './components/Auth/AuthContainer';
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import { db } from './firebase/config';
 
 const App: React.FC = () => {
+  const { user, isAuthenticated, logout } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(false); 
+  const [sidebarOpen, setSidebarOpen] = useState(true); 
   const [activeFilter, setActiveFilter] = useState('all');
   const [filterType, setFilterType] = useState<'all' | 'color' | 'category' | 'tag' | 'date'>('all');
   const [sidebarOverlayActive, setSidebarOverlayActive] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [darkMode, setDarkMode] = useState(false);
+  // Default to dark mode
+  const [darkMode, setDarkMode] = useState(true);
 
-  // Load notes from localStorage on initial render
+  // Apply dark theme to document
   useEffect(() => {
-    const savedNotes = localStorage.getItem('notes');
-    if (savedNotes) {
-      try {
-        const parsedNotes = JSON.parse(savedNotes);
-        // Convert string dates back to Date objects and ensure all notes have required properties
-        const notesWithDates = parsedNotes.map((note: any) => ({
-          ...note,
-          createdAt: new Date(note.createdAt),
-          updatedAt: new Date(note.updatedAt),
-          tags: note.tags || [],
-          pinned: note.pinned !== undefined ? note.pinned : false
-        }));
-        setNotes(notesWithDates);
-        setSaveStatus('saved');
-        setSaveMessage('Notes loaded successfully');
-      } catch (error) {
-        console.error('Error parsing saved notes:', error);
-        setSaveStatus('error');
-        setSaveMessage('Error loading notes from storage');
-      }
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    if (user) {
+      // Save user preference to Firestore if authenticated
+      // This would be implemented in a real app
     }
+  }, [darkMode, user]);
 
-    // Load theme preference from localStorage
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-      setDarkMode(true);
-      document.documentElement.setAttribute('data-theme', 'dark');
-    }
-  }, []);
-
-  // Handle window resize to detect mobile/desktop
+  // Load notes from Firestore
   useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
+    if (isAuthenticated && user) {
+      fetchNotes();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user]);
+
+  // Fetch notes from Firestore
+  const fetchNotes = async () => {
+    if (!user) return;
+    
+    try {
+      setSaveStatus('saving');
+      const q = query(collection(db, 'notes'), where('userId', '==', user.uid));
+      const querySnapshot = await getDocs(q);
       
-      // If transitioning to desktop, open sidebar
-      if (!mobile) {
-        setSidebarOpen(true);
+      const fetchedNotes: Note[] = [];
+      querySnapshot.forEach((doc) => {
+        const noteData = doc.data();
+        fetchedNotes.push({
+          ...noteData,
+          id: doc.id,
+          createdAt: noteData.createdAt?.toDate() || new Date(),
+          updatedAt: noteData.updatedAt?.toDate() || new Date()
+        } as Note);
+      });
+      
+      setNotes(fetchedNotes);
+      setSaveStatus('saved');
+    } catch (error) {
+      console.error('Error fetching notes:', error);
+      setSaveStatus('error');
+    }
+  };
+
+  // Save note to Firestore
+  const saveNote = async (note: Note) => {
+    if (!user) return;
+    
+    try {
+      setSaveStatus('saving');
+      
+      // Prepare note data for Firestore
+      const noteData = {
+        ...note,
+        userId: user.uid,
+        createdAt: note.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+      
+      if (note.id && notes.some(n => n.id === note.id)) {
+        // Update existing note
+        const noteRef = doc(db, 'notes', note.id);
+        await updateDoc(noteRef, noteData);
+        
+        // Update notes state
+        setNotes(prevNotes => 
+          prevNotes.map(n => n.id === note.id ? { ...noteData, id: note.id } as Note : n)
+        );
       } else {
-        // If transitioning to mobile, close sidebar
-        setSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    handleResize(); // Call once to set initial state
-    
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
-  }, []);
-
-  // Save notes to localStorage whenever notes change
-  useEffect(() => {
-    if (notes.length > 0) {
-      try {
-        setSaveStatus('saving');
-        localStorage.setItem('notes', JSON.stringify(notes));
-        setSaveStatus('saved');
-        setSaveMessage('All changes saved');
+        // Create new note
+        const docRef = await addDoc(collection(db, 'notes'), noteData);
         
-        // Reset the message after 3 seconds
-        const timer = setTimeout(() => {
-          setSaveStatus('idle');
-          setSaveMessage('');
-        }, 3000);
-        
-        return () => clearTimeout(timer);
-      } catch (error) {
-        console.error('Error saving notes to localStorage:', error);
-        setSaveStatus('error');
-        setSaveMessage('Error saving notes to storage');
+        // Update notes state with the new ID
+        const newNote = { ...noteData, id: docRef.id } as Note;
+        setNotes(prevNotes => [...prevNotes, newNote]);
       }
-    }
-  }, [notes]);
-
-  // Toggle dark mode
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    
-    // Update the data-theme attribute on the root element
-    document.documentElement.setAttribute('data-theme', newDarkMode ? 'dark' : 'light');
-    
-    // Save theme preference to localStorage
-    localStorage.setItem('theme', newDarkMode ? 'dark' : 'light');
-  };
-
-  // Toggle sidebar
-  const toggleSidebar = () => {
-    // Only toggle on mobile
-    if (isMobile) {
-      const newSidebarOpen = !sidebarOpen;
-      setSidebarOpen(newSidebarOpen);
-      setSidebarOverlayActive(newSidebarOpen); // Only active when sidebar is open
+      
+      setSaveStatus('saved');
+      setIsFormOpen(false);
+      setEditingNote(null);
+    } catch (error) {
+      console.error('Error saving note:', error);
+      setSaveStatus('error');
     }
   };
 
-  const handleAddNote = () => {
+  // Delete note from Firestore
+  const deleteNote = async (id: string) => {
+    if (!user) return;
+    
+    try {
+      setSaveStatus('saving');
+      await deleteDoc(doc(db, 'notes', id));
+      
+      // Update notes state
+      setNotes(prevNotes => prevNotes.filter(note => note.id !== id));
+      setSaveStatus('saved');
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      setSaveStatus('error');
+    }
+  };
+
+  // Toggle pin status
+  const togglePinNote = async (id: string) => {
+    if (!user) return;
+    
+    const noteToUpdate = notes.find(note => note.id === id);
+    if (!noteToUpdate) return;
+    
+    try {
+      const updatedNote = { ...noteToUpdate, pinned: !noteToUpdate.pinned, updatedAt: new Date() };
+      const noteRef = doc(db, 'notes', id);
+      await updateDoc(noteRef, { pinned: !noteToUpdate.pinned, updatedAt: new Date() });
+      
+      // Update notes state
+      setNotes(prevNotes => 
+        prevNotes.map(note => note.id === id ? updatedNote : note)
+      );
+    } catch (error) {
+      console.error('Error updating pin status:', error);
+    }
+  };
+
+  const handleEditNote = (note: Note) => {
+    setEditingNote(note);
+    setIsFormOpen(true);
+  };
+
+  const handleCreateNote = () => {
     setEditingNote(null);
     setIsFormOpen(true);
   };
 
-  const handleEditNote = (id: string) => {
-    const noteToEdit = notes.find(note => note.id === id);
-    if (noteToEdit) {
-      setEditingNote(noteToEdit);
-      setIsFormOpen(true);
-    }
-  };
-
-  const handleDeleteNote = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this note?')) {
-      setNotes(notes.filter(note => note.id !== id));
-    }
-  };
-
-  const handleSaveNote = (noteData: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>) => {
-    if (editingNote) {
-      // Update existing note
-      const updatedNote: Note = {
-        ...editingNote,
-        ...noteData,
-        updatedAt: new Date()
-      };
-      
-      setNotes(notes.map(note => note.id === editingNote.id ? updatedNote : note));
-      setEditingNote(null);
-    } else {
-      // Create new note
-      const newNote: Note = {
-        id: uuidv4(),
-        ...noteData,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      setNotes([newNote, ...notes]);
-    }
-    
-    setIsFormOpen(false);
-  };
-
-  const handleCancelForm = () => {
+  const handleCloseForm = () => {
     setIsFormOpen(false);
     setEditingNote(null);
   };
 
-  const handlePinNote = (id: string, pinned: boolean) => {
-    const updatedNotes = notes.map(note => 
-      note.id === id 
-        ? { ...note, pinned, updatedAt: new Date() } 
-        : note
-    );
-    
-    setNotes(updatedNotes);
-    
-    // Save to localStorage
-    localStorage.setItem('notes', JSON.stringify(updatedNotes));
-    
-    setSaveStatus('saved');
-    setSaveMessage(pinned ? 'Note pinned successfully' : 'Note unpinned successfully');
-    
-    // Clear message after 3 seconds
-    setTimeout(() => {
-      setSaveStatus('idle');
-      setSaveMessage('');
-    }, 3000);
+  const toggleTheme = () => {
+    setDarkMode(prevDarkMode => !prevDarkMode);
   };
 
-  const handleFilterChange = (filter: string, type: 'all' | 'color' | 'category' | 'tag' | 'date' = 'color') => {
-    setActiveFilter(filter);
-    setFilterType(type);
-    setSearchTerm('');
-    
+  const toggleSidebar = () => {
+    setSidebarOpen(prev => !prev);
+    if (isMobile) {
+      setSidebarOverlayActive(prev => !prev);
+    }
+  };
+
+  const closeSidebar = () => {
     if (isMobile) {
       setSidebarOpen(false);
       setSidebarOverlayActive(false);
     }
   };
 
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile && !sidebarOpen) {
+        setSidebarOpen(true);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [sidebarOpen]);
+
+  // Filter notes based on active filter
+  const filteredNotes = notes.filter(note => {
+    // Search term filter
+    if (searchTerm && !note.title.toLowerCase().includes(searchTerm.toLowerCase()) && 
+        !(typeof note.content === 'string' && note.content.toLowerCase().includes(searchTerm.toLowerCase()))) {
+      return false;
+    }
+
+    // Category, tag, or color filter
+    if (filterType !== 'all' && activeFilter !== 'all') {
+      if (filterType === 'category' && note.category !== activeFilter) {
+        return false;
+      }
+      if (filterType === 'tag' && !note.tags?.includes(activeFilter)) {
+        return false;
+      }
+      if (filterType === 'color' && note.color !== activeFilter) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // Sort notes: pinned first, then by updatedAt date
+  const sortedNotes = [...filteredNotes].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+
   // Get all unique tags from notes
-  const getAllTags = (): string[] => {
+  const getAllTags = () => {
     const allTags = notes.reduce((tags: string[], note) => {
       if (note.tags && note.tags.length > 0) {
         return [...tags, ...note.tags];
       }
       return tags;
     }, []);
-    
-    // Remove duplicates using filter instead of Set
-    return allTags.filter((tag, index, self) => 
-      self.indexOf(tag) === index
-    );
+    return [...new Set(allTags)];
   };
 
-  // Get all unique categories from notes
-  const getAllCategories = (): string[] => {
-    const allCategories = notes
-      .map(note => note.category)
-      .filter((category): category is string => !!category);
-    
-    // Remove duplicates using filter instead of Set
-    return allCategories.filter((category, index, self) => 
-      self.indexOf(category) === index
-    );
+  // Get all used categories from notes
+  const getUsedCategories = () => {
+    const categories = notes.map(note => note.category).filter(Boolean) as string[];
+    return [...new Set(categories)];
   };
 
-  // Filter and sort notes based on search term, filter, and pin status
-  const filteredNotes = notes
-    .filter(note => {
-      const matchesSearch = note.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         note.content.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      // Show all notes when no filter is applied
-      if (filterType === 'all' && activeFilter === 'all') {
-        return matchesSearch;
-      }
-      
-      // Filter by color
-      if (filterType === 'color') {
-        if (activeFilter === 'white' && note.color === '#ffffff') return matchesSearch;
-        if (activeFilter === 'red' && note.color === '#f8d7da') return matchesSearch;
-        if (activeFilter === 'green' && note.color === '#d1e7dd') return matchesSearch;
-        if (activeFilter === 'blue' && note.color === '#cfe2ff') return matchesSearch;
-        if (activeFilter === 'yellow' && note.color === '#fff3cd') return matchesSearch;
-      }
-      
-      // Filter by category
-      if (filterType === 'category') {
-        return note.category === activeFilter && matchesSearch;
-      }
-      
-      // Filter by tag
-      if (filterType === 'tag') {
-        return note.tags && note.tags.includes(activeFilter) && matchesSearch;
-      }
-      
-      // Filter by date
-      if (filterType === 'date') {
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const lastWeek = new Date(today);
-        lastWeek.setDate(lastWeek.getDate() - 7);
-        
-        const noteDate = new Date(note.createdAt);
-        
-        if (activeFilter === 'today') {
-          return noteDate >= today && matchesSearch;
-        }
-        
-        if (activeFilter === 'week') {
-          return noteDate >= lastWeek && matchesSearch;
-        }
-      }
-      
-      return false;
-    })
-    .sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return 0;
-    });
+  // Get all used colors from notes
+  const getUsedColors = () => {
+    const colors = notes.map(note => note.color).filter(Boolean) as string[];
+    return [...new Set(colors)];
+  };
 
-  const renderNotes = () => {
-    if (filteredNotes.length === 0) {
-      return (
-        <div className="empty-notes">
-          <p>{searchTerm ? 'No notes match your search.' : 'No notes yet. Create your first note!'}</p>
-        </div>
-      );
-    }
-
+  // If not authenticated, show login/register
+  if (!isAuthenticated) {
     return (
-      <div className="notes-grid">
-        {filteredNotes.map(note => (
-          <div key={note.id} className="note-grid-item">
-            <NoteItem
-              note={note}
-              onEdit={handleEditNote}
-              onDelete={handleDeleteNote}
-              onPin={handlePinNote}
-            />
-          </div>
-        ))}
+      <div className="app dark-mode">
+        <AuthContainer />
       </div>
     );
-  };
+  }
 
   return (
-    <div className="app" data-theme={darkMode ? 'dark' : 'light'}>
-      <div className="app-container">
-        {/* Sidebar overlay for mobile */}
-        <div 
-          className={`sidebar-overlay ${sidebarOverlayActive ? 'active' : ''}`} 
-          onClick={toggleSidebar}
-        ></div>
-        
-        {/* Sidebar */}
-        <div className={`app-sidebar ${sidebarOpen ? 'open' : ''}`}>
-          <div className="sidebar-header">
-            <h1 className="sidebar-title">Notes</h1>
-            <div className="sidebar-actions">
-              <ThemeToggle darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
-              {isMobile && (
-                <button className="sidebar-close" onClick={toggleSidebar}>
-                  <i className="material-icons">close</i>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="sidebar-content">
-            <div className="sidebar-section">
-              <h2 className="sidebar-section-title">
-                <i className="material-icons">filter_list</i> Filters
-              </h2>
-              <div className="filter-buttons">
-                <button 
-                  className={`filter-button ${activeFilter === 'all' && filterType === 'all' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('all', 'all')}
-                >
-                  <i className="material-icons">notes</i>
-                  <span>All Notes</span>
-                </button>
-                <button 
-                  className={`filter-button ${activeFilter === 'today' && filterType === 'date' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('today', 'date')}
-                >
-                  <i className="material-icons">today</i>
-                  <span>Today</span>
-                </button>
-                <button 
-                  className={`filter-button ${activeFilter === 'week' && filterType === 'date' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('week', 'date')}
-                >
-                  <i className="material-icons">date_range</i>
-                  <span>This Week</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <h2 className="sidebar-section-title">
-                <i className="material-icons">palette</i> Colors
-              </h2>
-              <div className="color-filters">
-                <div 
-                  className={`color-filter ${activeFilter === 'white' && filterType === 'color' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('white', 'color')}
-                  title="White"
-                >
-                  <span className="color-circle white"></span>
-                </div>
-                <div 
-                  className={`color-filter ${activeFilter === 'red' && filterType === 'color' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('red', 'color')}
-                  title="Light Red"
-                >
-                  <span className="color-circle red"></span>
-                </div>
-                <div 
-                  className={`color-filter ${activeFilter === 'green' && filterType === 'color' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('green', 'color')}
-                  title="Light Green"
-                >
-                  <span className="color-circle green"></span>
-                </div>
-                <div 
-                  className={`color-filter ${activeFilter === 'blue' && filterType === 'color' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('blue', 'color')}
-                  title="Light Blue"
-                >
-                  <span className="color-circle blue"></span>
-                </div>
-                <div 
-                  className={`color-filter ${activeFilter === 'yellow' && filterType === 'color' ? 'active' : ''}`}
-                  onClick={() => handleFilterChange('yellow', 'color')}
-                  title="Light Yellow"
-                >
-                  <span className="color-circle yellow"></span>
-                </div>
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <h2 className="sidebar-section-title">
-                <i className="material-icons">category</i> Categories
-              </h2>
-              <div className="filter-buttons">
-                {getAllCategories().length > 0 ? (
-                  getAllCategories().map(category => (
-                    <button 
-                      key={category}
-                      className={`filter-button ${activeFilter === category && filterType === 'category' ? 'active' : ''}`}
-                      onClick={() => handleFilterChange(category, 'category')}
-                    >
-                      <i className="material-icons">
-                        {category === 'work' ? 'work' : 
-                         category === 'personal' ? 'person' : 
-                         category === 'ideas' ? 'lightbulb' : 
-                         category === 'todo' ? 'check_circle' : 
-                         category === 'important' ? 'priority_high' : 'label'}
-                      </i>
-                      <span>
-                        {category.charAt(0).toUpperCase() + category.slice(1)}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="sidebar-empty-message">
-                    <span>No categories yet</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="sidebar-section">
-              <h2 className="sidebar-section-title">
-                <i className="material-icons">local_offer</i> Tags
-              </h2>
-              <div className="filter-buttons">
-                {getAllTags().length > 0 ? (
-                  getAllTags().map(tag => (
-                    <button 
-                      key={tag}
-                      className={`filter-button ${activeFilter === tag && filterType === 'tag' ? 'active' : ''}`}
-                      onClick={() => handleFilterChange(tag, 'tag')}
-                    >
-                      <i className="material-icons">local_offer</i>
-                      <span>{tag}</span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="sidebar-empty-message">
-                    <span>No tags yet</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="sidebar-search">
-            <div className="search-container">
-              <i className="material-icons search-icon">search</i>
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Search notes..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              {searchTerm && (
-                <button className="search-clear" onClick={() => setSearchTerm('')}>
-                  <i className="material-icons">close</i>
-                </button>
-              )}
-            </div>
-          </div>
+    <div className={`app ${darkMode ? 'dark-mode' : ''}`}>
+      {/* Header */}
+      <header className="app-header">
+        <div className="header-left">
+          <button className="icon-button menu-button" onClick={toggleSidebar}>
+            <i className="icon-menu"></i>
+          </button>
+          <h1>React Notes</h1>
         </div>
-        
-        {/* Main content */}
-        <div className="app-main">
-          {isMobile && (
-            <button className="mobile-sidebar-toggle" onClick={toggleSidebar}>
-              <i className="material-icons">menu</i>
-            </button>
-          )}
-          
-          {renderNotes()}
-          
-          {saveStatus !== 'idle' && (
-            <div className={`save-status ${saveStatus}`}>
-              {saveMessage}
-            </div>
-          )}
-          
-          {/* Material Design Floating Action Button (FAB) */}
-          <div className="fab" onClick={handleAddNote}>
-            <i className="material-icons">add</i>
-          </div>
-          
-          {isFormOpen && (
-            <NoteForm
-              note={editingNote || undefined}
-              onSave={handleSaveNote}
-              onCancel={handleCancelForm}
+        <div className="header-right">
+          <div className="search-container">
+            <i className="icon-search search-icon"></i>
+            <input 
+              type="text" 
+              className="search-input" 
+              placeholder="Search notes..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
             />
-          )}
+          </div>
+          <ThemeToggle darkMode={darkMode} toggleTheme={toggleTheme} />
+          <div className="user-profile">
+            {user?.photoURL ? (
+              <img 
+                src={user.photoURL} 
+                alt={user.displayName || 'User'} 
+                className="user-avatar" 
+              />
+            ) : (
+              <div className="user-avatar-placeholder">
+                {user?.displayName?.charAt(0) || user?.email?.charAt(0) || 'U'}
+              </div>
+            )}
+            <div className="user-dropdown">
+              <div className="user-info">
+                <p className="user-name">{user?.displayName || 'User'}</p>
+                <p className="user-email">{user?.email}</p>
+              </div>
+              <button className="logout-button" onClick={logout}>
+                <i className="icon-logout"></i> Logout
+              </button>
+            </div>
+          </div>
         </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="app-content">
+        {/* Sidebar */}
+        <aside className={`app-sidebar ${sidebarOpen ? 'open' : ''}`}>
+          <div className="sidebar-section">
+            <h3 className="sidebar-title">Filters</h3>
+            <div className="filter-buttons">
+              <button 
+                className={`filter-button ${filterType === 'all' && activeFilter === 'all' ? 'active' : ''}`}
+                onClick={() => { setFilterType('all'); setActiveFilter('all'); }}
+              >
+                <i className="icon-notes"></i> All Notes
+              </button>
+            </div>
+          </div>
+
+          {/* Colors Filter */}
+          <div className="sidebar-section">
+            <h3 className="sidebar-title">Colors</h3>
+            <div className="color-filters">
+              {getUsedColors().map(color => (
+                <button 
+                  key={color}
+                  className={`color-filter ${color} ${filterType === 'color' && activeFilter === color ? 'active' : ''}`}
+                  onClick={() => { setFilterType('color'); setActiveFilter(color); }}
+                  title={`Filter by ${color}`}
+                ></button>
+              ))}
+            </div>
+          </div>
+
+          {/* Categories Filter */}
+          <div className="sidebar-section">
+            <h3 className="sidebar-title">Categories</h3>
+            <div className="category-list">
+              {['Work', 'Personal', 'Ideas', 'To-Do', 'Important'].map(category => (
+                <button 
+                  key={category}
+                  className={`category-filter ${filterType === 'category' && activeFilter === category ? 'active' : ''}`}
+                  onClick={() => { setFilterType('category'); setActiveFilter(category); }}
+                >
+                  <i className={`icon-${category.toLowerCase().replace(' ', '-')}`}></i>
+                  {category}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tags Filter */}
+          <div className="sidebar-section">
+            <h3 className="sidebar-title">Tags</h3>
+            <div className="tag-list">
+              {getAllTags().map(tag => (
+                <button 
+                  key={tag}
+                  className={`tag-filter ${filterType === 'tag' && activeFilter === tag ? 'active' : ''}`}
+                  onClick={() => { setFilterType('tag'); setActiveFilter(tag); }}
+                >
+                  <i className="icon-tag"></i>
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* Mobile sidebar overlay */}
+        {sidebarOverlayActive && (
+          <div className="sidebar-overlay" onClick={closeSidebar}></div>
+        )}
+
+        {/* Notes Grid */}
+        <main className="app-main">
+          <div className="notes-grid">
+            {sortedNotes.map(note => (
+              <NoteItem 
+                key={note.id} 
+                note={note} 
+                onEdit={handleEditNote} 
+                onDelete={deleteNote}
+                onPin={togglePinNote}
+              />
+            ))}
+          </div>
+
+          {/* Add Note Button */}
+          <button className="add-note-button" onClick={handleCreateNote}>
+            <i className="icon-plus"></i>
+          </button>
+        </main>
       </div>
+
+      {/* Note Form Modal */}
+      {isFormOpen && (
+        <div className="modal-overlay">
+          <div className="modal-container">
+            <NoteForm 
+              note={editingNote} 
+              onSave={saveNote} 
+              onClose={handleCloseForm} 
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,22 +3,22 @@ import './ThemeToggle.css';
 
 interface ThemeToggleProps {
   darkMode: boolean;
-  toggleDarkMode: () => void;
+  toggleTheme: () => void;
 }
 
-const ThemeToggle: React.FC<ThemeToggleProps> = ({ darkMode, toggleDarkMode }) => {
+const ThemeToggle: React.FC<ThemeToggleProps> = ({ darkMode, toggleTheme }) => {
   return (
     <div className="theme-toggle">
       <button 
         className="theme-toggle-button" 
-        onClick={toggleDarkMode}
+        onClick={toggleTheme}
         aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
         title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
       >
         {darkMode ? (
-          <span className="material-icons">light_mode</span>
+          <i className="icon-light-mode"></i>
         ) : (
-          <span className="material-icons">dark_mode</span>
+          <i className="icon-dark-mode"></i>
         )}
       </button>
     </div>

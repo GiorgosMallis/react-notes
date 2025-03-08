@@ -4,79 +4,72 @@ import './NoteForm.css';
 import RichTextEditor from './RichTextEditor';
 
 interface NoteFormProps {
-  note?: Note;
-  onSave: (note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  onCancel: () => void;
+  note?: Note | null; 
+  onSave: (note: Note) => Promise<void>; 
+  onClose: () => void; 
 }
 
-const NoteForm: React.FC<NoteFormProps> = ({ note, onSave, onCancel }) => {
+const NoteForm: React.FC<NoteFormProps> = ({ note, onSave, onClose }) => {
   const [title, setTitle] = useState(note?.title || '');
   const [content, setContent] = useState(note?.content || '');
   const [contentState, setContentState] = useState(note?.contentState || '');
-  const [color, setColor] = useState(note?.color || '#ffffff');
+  const [color, setColor] = useState(note?.color || 'default');
   const [tags, setTags] = useState<string[]>(note?.tags || []);
   const [tagInput, setTagInput] = useState('');
   const [category, setCategory] = useState(note?.category || '');
   const [pinned, setPinned] = useState(note?.pinned || false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (note) {
       setTitle(note.title);
       setContent(note.content);
       setContentState(note.contentState || '');
-      setColor(note.color || '#ffffff');
+      setColor(note.color || 'default');
       setTags(note.tags || []);
       setCategory(note.category || '');
       setPinned(note.pinned || false);
     }
   }, [note]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       alert('Please enter a title for your note');
       return;
     }
     
-    onSave({
-      title: title.trim(),
-      content: content.trim(),
-      contentState,
-      color,
-      tags,
-      category,
-      pinned
-    });
+    setIsSubmitting(true);
     
-    // Reset form
-    setTitle('');
-    setContent('');
-    setContentState('');
-    setColor('#ffffff');
-    setTags([]);
-    setTagInput('');
-    setCategory('');
-    setPinned(false);
-  };
-
-  const handleContentChange = (text: string, rawContentState?: string) => {
-    setContent(text);
-    if (rawContentState) {
-      setContentState(rawContentState);
+    try {
+      const noteData: Note = {
+        id: note?.id || '', 
+        title: title.trim(),
+        content: content.trim(),
+        contentState,
+        color,
+        tags,
+        category,
+        pinned,
+        createdAt: note?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+      
+      await onSave(noteData);
+      onClose();
+    } catch (error) {
+      console.error('Error saving note:', error);
+      alert('Failed to save note. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleAddTag = () => {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags([...tags, tagInput.trim()]);
+    const trimmedTag = tagInput.trim().toLowerCase();
+    if (trimmedTag && !tags.includes(trimmedTag)) {
+      setTags([...tags, trimmedTag]);
       setTagInput('');
-    }
-  };
-
-  const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tagInput.trim()) {
-      e.preventDefault();
-      handleAddTag();
     }
   };
 
@@ -84,43 +77,50 @@ const NoteForm: React.FC<NoteFormProps> = ({ note, onSave, onCancel }) => {
     setTags(tags.filter(tag => tag !== tagToRemove));
   };
 
-  const colorOptions = [
-    { value: '#ffffff', label: 'White' },
-    { value: '#f8d7da', label: 'Light Red' },
-    { value: '#d1e7dd', label: 'Light Green' },
-    { value: '#cfe2ff', label: 'Light Blue' },
-    { value: '#fff3cd', label: 'Light Yellow' },
-  ];
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && tagInput) {
+      e.preventDefault();
+      handleAddTag();
+    }
+  };
 
-  const categoryOptions = [
-    { value: '', label: 'No Category', icon: 'label_off' },
-    { value: 'work', label: 'Work', icon: 'work' },
-    { value: 'personal', label: 'Personal', icon: 'person' },
-    { value: 'ideas', label: 'Ideas', icon: 'lightbulb' },
-    { value: 'todo', label: 'To-Do', icon: 'check_box' },
-    { value: 'important', label: 'Important', icon: 'star' },
+  const categories = ['Work', 'Personal', 'Ideas', 'To-Do', 'Important'];
+
+  const colors = [
+    { name: 'Default', value: 'default' },
+    { name: 'Red', value: 'red' },
+    { name: 'Orange', value: 'orange' },
+    { name: 'Yellow', value: 'yellow' },
+    { name: 'Green', value: 'green' },
+    { name: 'Blue', value: 'blue' },
+    { name: 'Purple', value: 'purple' },
+    { name: 'Pink', value: 'pink' }
   ];
 
   return (
     <div className="note-form-overlay">
-      <div className="note-form-container">
-        <form className="note-form" onSubmit={handleSubmit}>
-          <div className="form-header">
-            <h2 className="form-title">{note ? 'Edit Note' : 'Create Note'}</h2>
-            <button type="button" className="close-btn" onClick={onCancel}>
-              <i className="material-icons">close</i>
-            </button>
-          </div>
-          
+      <div className={`note-form ${color}`}>
+        <div className="form-header">
+          <h2>{note ? 'Edit Note' : 'Create Note'}</h2>
+          <button 
+            type="button" 
+            className="close-button"
+            onClick={onClose}
+            aria-label="Close form"
+          >
+            <i className="material-icons">close</i>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="title">Title</label>
             <input
               type="text"
               id="title"
-              className="form-control"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter note title"
+              placeholder="Note title"
               required
             />
           </div>
@@ -130,103 +130,112 @@ const NoteForm: React.FC<NoteFormProps> = ({ note, onSave, onCancel }) => {
             <RichTextEditor
               value={content}
               contentState={contentState}
-              onChange={handleContentChange}
-              placeholder="Enter note content"
+              onChange={(text, rawContentState) => {
+                setContent(text);
+                if (rawContentState) {
+                  setContentState(rawContentState);
+                }
+              }}
+              placeholder="Note content"
             />
           </div>
           
           <div className="form-group">
             <label htmlFor="category">Category</label>
-            <div className="category-selector">
-              {categoryOptions.map((option) => (
+            <select
+              id="category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">Select a category</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="form-group">
+            <label htmlFor="color">Color</label>
+            <div className="color-selector">
+              {colors.map((colorOption) => (
                 <div 
-                  key={option.value} 
-                  className={`category-option ${category === option.value ? 'selected' : ''}`}
-                  onClick={() => setCategory(option.value)}
+                  key={colorOption.value}
+                  className={`color-option ${colorOption.value} ${color === colorOption.value ? 'selected' : ''}`}
+                  onClick={() => setColor(colorOption.value)}
+                  title={colorOption.name}
                 >
-                  <i className="material-icons">{option.icon}</i>
-                  {option.label}
+                  {color === colorOption.value && <i className="material-icons">check</i>}
                 </div>
               ))}
             </div>
           </div>
-
+          
           <div className="form-group">
             <label htmlFor="tags">Tags</label>
             <div className="tags-input-container">
-              <div className="tags-input-wrapper">
-                <input
-                  type="text"
-                  id="tags"
-                  className="form-control tags-input"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={handleTagInputKeyDown}
-                  placeholder="Add tags (press Enter to add)"
-                />
-                <button 
-                  type="button" 
-                  className="add-tag-btn"
-                  onClick={handleAddTag}
-                  disabled={!tagInput.trim()}
-                >
-                  <i className="material-icons">add</i>
-                </button>
+              <input
+                type="text"
+                id="tags"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Add tags and press Enter"
+              />
+              <button 
+                type="button" 
+                onClick={handleAddTag}
+                className="add-tag-button"
+                disabled={!tagInput.trim()}
+              >
+                <i className="material-icons">add</i>
+              </button>
+            </div>
+            
+            {tags.length > 0 && (
+              <div className="tags-container">
+                {tags.map((tag) => (
+                  <div key={tag} className="tag">
+                    <span>#{tag}</span>
+                    <button 
+                      type="button"
+                      onClick={() => handleRemoveTag(tag)}
+                      className="remove-tag-button"
+                    >
+                      <i className="material-icons">close</i>
+                    </button>
+                  </div>
+                ))}
               </div>
-            </div>
-            <div className="tags-container">
-              {tags.map((tag, index) => (
-                <div key={index} className="tag-item">
-                  <span className="tag-text">{tag}</span>
-                  <button 
-                    type="button" 
-                    className="remove-tag-btn"
-                    onClick={() => handleRemoveTag(tag)}
-                  >
-                    <i className="material-icons">close</i>
-                  </button>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
           
-          <div className="form-group">
-            <label htmlFor="color">Note Color</label>
-            <div className="color-selector">
-              {colorOptions.map((option) => (
-                <div 
-                  key={option.value} 
-                  className={`color-option ${color === option.value ? 'selected' : ''}`}
-                  style={{ backgroundColor: option.value }}
-                  onClick={() => setColor(option.value)}
-                  title={option.label}
-                ></div>
-              ))}
-            </div>
-          </div>
-          
-          <div className="form-group">
-            <label htmlFor="pin-checkbox">Pin this note</label>
-            <div className="pin-checkbox-container">
-              <label>
-                <input 
-                  type="checkbox" 
-                  id="pin-checkbox"
-                  checked={pinned} 
-                  onChange={(e) => setPinned(e.target.checked)}
-                />
-                <i className="material-icons">push_pin</i>
-                Pin to top
-              </label>
-            </div>
+          <div className="form-group checkbox-group">
+            <label htmlFor="pinned" className="checkbox-label">
+              <input
+                type="checkbox"
+                id="pinned"
+                checked={pinned}
+                onChange={(e) => setPinned(e.target.checked)}
+              />
+              <span>Pin this note</span>
+            </label>
           </div>
           
           <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={onCancel}>
+            <button 
+              type="button" 
+              className="cancel-button"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary">
-              {note ? 'Update' : 'Save'}
+            <button 
+              type="submit" 
+              className="save-button"
+              disabled={isSubmitting || !title.trim()}
+            >
+              {isSubmitting ? 'Saving...' : 'Save Note'}
             </button>
           </div>
         </form>

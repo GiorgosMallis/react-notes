@@ -55,7 +55,7 @@ const stateToHTML = (contentState: ContentState): string => {
         processedContent += '</strong>';
       }
       
-      // Open tags if style is starting (in order)
+      // Open tags if style is starting
       if (!currentStyles.bold && newStyles.bold) {
         processedContent += '<strong>';
       }
@@ -69,307 +69,257 @@ const stateToHTML = (contentState: ContentState): string => {
         processedContent += '<code>';
       }
       
-      // Add the character (with HTML entity for special characters)
-      if (char === '<') processedContent += '&lt;';
-      else if (char === '>') processedContent += '&gt;';
-      else if (char === '&') processedContent += '&amp;';
-      else processedContent += char;
+      // Add the character
+      processedContent += char;
       
       // Update current styles
       currentStyles = newStyles;
     }
     
-    // Close any remaining tags (in reverse order)
-    if (currentStyles.code) {
-      processedContent += '</code>';
-    }
-    if (currentStyles.underline) {
-      processedContent += '</u>';
-    }
-    if (currentStyles.italic) {
-      processedContent += '</em>';
-    }
-    if (currentStyles.bold) {
-      processedContent += '</strong>';
-    }
+    // Close any remaining tags
+    if (currentStyles.code) processedContent += '</code>';
+    if (currentStyles.underline) processedContent += '</u>';
+    if (currentStyles.italic) processedContent += '</em>';
+    if (currentStyles.bold) processedContent += '</strong>';
     
-    // Handle different block types with proper HTML structure
-    if (blockType === 'header-one') {
+    // Handle block types
+    if (blockType === 'unstyled') {
+      if (inUnorderedList) {
+        html += '</ul>';
+        inUnorderedList = false;
+      }
+      if (inOrderedList) {
+        html += '</ol>';
+        inOrderedList = false;
+      }
+      html += `<p>${processedContent}</p>`;
+    } else if (blockType === 'header-one') {
+      if (inUnorderedList) {
+        html += '</ul>';
+        inUnorderedList = false;
+      }
+      if (inOrderedList) {
+        html += '</ol>';
+        inOrderedList = false;
+      }
       html += `<h1>${processedContent}</h1>`;
     } else if (blockType === 'header-two') {
+      if (inUnorderedList) {
+        html += '</ul>';
+        inUnorderedList = false;
+      }
+      if (inOrderedList) {
+        html += '</ol>';
+        inOrderedList = false;
+      }
       html += `<h2>${processedContent}</h2>`;
-    } else if (blockType === 'header-three') {
-      html += `<h3>${processedContent}</h3>`;
+    } else if (blockType === 'blockquote') {
+      if (inUnorderedList) {
+        html += '</ul>';
+        inUnorderedList = false;
+      }
+      if (inOrderedList) {
+        html += '</ol>';
+        inOrderedList = false;
+      }
+      html += `<blockquote>${processedContent}</blockquote>`;
     } else if (blockType === 'unordered-list-item') {
+      if (inOrderedList) {
+        html += '</ol>';
+        inOrderedList = false;
+      }
       if (!inUnorderedList) {
         html += '<ul>';
         inUnorderedList = true;
       }
       html += `<li>${processedContent}</li>`;
-      
-      // Check if we need to close the list
-      if (blockIndex === blocks.length - 1 || (blockIndex + 1 < blocks.length && blocks[blockIndex + 1].getType() !== 'unordered-list-item')) {
+    } else if (blockType === 'ordered-list-item') {
+      if (inUnorderedList) {
         html += '</ul>';
         inUnorderedList = false;
       }
-    } else if (blockType === 'ordered-list-item') {
       if (!inOrderedList) {
         html += '<ol>';
         inOrderedList = true;
       }
       html += `<li>${processedContent}</li>`;
-      
-      // Check if we need to close the list
-      if (blockIndex === blocks.length - 1 || (blockIndex + 1 < blocks.length && blocks[blockIndex + 1].getType() !== 'ordered-list-item')) {
-        html += '</ol>';
-        inOrderedList = false;
-      }
-    } else if (blockType === 'code-block') {
-      html += `<pre><code>${processedContent}</code></pre>`;
-    } else if (blockType === 'blockquote') {
-      html += `<blockquote>${processedContent}</blockquote>`;
     } else {
-      // Default paragraph
-      if (text.length === 0) {
-        // Empty paragraph for spacing
-        html += '<p>&nbsp;</p>';
-      } else {
-        html += `<p>${processedContent}</p>`;
-      }
+      html += `<p>${processedContent}</p>`;
     }
   });
+  
+  // Close any open lists
+  if (inUnorderedList) {
+    html += '</ul>';
+  }
+  if (inOrderedList) {
+    html += '</ol>';
+  }
   
   return html;
 };
 
 interface NoteItemProps {
   note: Note;
-  onEdit: (id: string) => void;
+  onEdit: (note: Note) => void;
   onDelete: (id: string) => void;
-  onPin: (id: string, pinned: boolean) => void;
+  onPin?: (id: string) => void;
 }
 
 const NoteItem: React.FC<NoteItemProps> = ({ note, onEdit, onDelete, onPin }) => {
-  const [isViewMode, setIsViewMode] = useState(false);
-  
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+
+  // Parse the content if it's in raw format
+  const getContentPreview = () => {
+    try {
+      if (typeof note.content === 'string') {
+        // Plain text content
+        return note.content.substring(0, 150) + (note.content.length > 150 ? '...' : '');
+      } else if (note.content && typeof note.content === 'object') {
+        // Draft.js raw content
+        const contentState = convertFromRaw(note.content);
+        const editorState = EditorState.createWithContent(contentState);
+        const plainText = editorState.getCurrentContent().getPlainText();
+        return plainText.substring(0, 150) + (plainText.length > 150 ? '...' : '');
+      }
+      return '';
+    } catch (error) {
+      console.error('Error parsing note content:', error);
+      return 'Error displaying content';
+    }
+  };
+
+  // Format the date
   const formatDate = (date: Date) => {
     return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
       month: 'short',
       day: 'numeric',
+      year: 'numeric'
     });
   };
 
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'work':
-        return 'work';
-      case 'personal':
-        return 'person';
-      case 'ideas':
-        return 'lightbulb';
-      case 'todo':
-        return 'check_circle';
-      case 'important':
-        return 'priority_high';
-      default:
-        return 'label';
+  const handleEdit = () => {
+    onEdit(note);
+  };
+
+  const handleDelete = () => {
+    onDelete(note.id);
+  };
+
+  const handlePin = () => {
+    if (onPin) { 
+      onPin(note.id);
     }
   };
 
-  const toggleViewMode = () => {
-    setIsViewMode(!isViewMode);
+  const toggleExpand = () => {
+    setIsExpanded(!isExpanded);
   };
 
-  const handleNoteClick = (e: React.MouseEvent) => {
-    // Only toggle view mode if not clicking on action buttons
-    if (!(e.target as HTMLElement).closest('.note-actions')) {
-      toggleViewMode();
-    }
+  const toggleOptions = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowOptions(!showOptions);
   };
 
-  const renderContent = () => {
-    if (note.contentState) {
-      try {
-        const contentState = convertFromRaw(JSON.parse(note.contentState));
-        const html = stateToHTML(contentState);
-        return <div className={`note-content ${isViewMode ? 'expanded' : ''}`} dangerouslySetInnerHTML={{ __html: html }} />;
-      } catch (e) {
-        console.error('Error parsing content state', e);
-        return <div className={`note-content ${isViewMode ? 'expanded' : ''}`}>{note.content}</div>;
+  // Get HTML content for rendering
+  const getHtmlContent = () => {
+    try {
+      if (typeof note.content === 'string') {
+        // Plain text content, wrap in paragraph tags
+        return `<p>${note.content.replace(/\n/g, '<br>')}</p>`;
+      } else if (note.content && typeof note.content === 'object') {
+        // Draft.js raw content
+        const contentState = convertFromRaw(note.content);
+        return stateToHTML(contentState);
       }
+      return '';
+    } catch (error) {
+      console.error('Error parsing note content for HTML:', error);
+      return '<p>Error displaying content</p>';
     }
-    return <div className={`note-content ${isViewMode ? 'expanded' : ''}`}>{note.content}</div>;
   };
 
-  // Render the normal note card
-  const renderNoteCard = () => (
+  return (
     <div 
-      className={`note-item ${note.pinned ? 'pinned' : ''}`} 
-      style={{ backgroundColor: note.color || '#ffffff' }}
-      onClick={handleNoteClick}
+      className={`note-item ${note.color || 'default'} ${isExpanded ? 'expanded' : ''} ${note.pinned ? 'pinned' : ''}`}
+      onClick={toggleExpand}
     >
-      <div className="note-actions">
-        <button 
-          className="note-btn pin ripple" 
-          onClick={(e) => {
-            e.stopPropagation();
-            onPin(note.id, !note.pinned);
-          }} 
-          aria-label={note.pinned ? "Unpin note" : "Pin note"}
-          title={note.pinned ? "Unpin note" : "Pin note"}
-        >
-          <i className="material-icons">{note.pinned ? 'push_pin' : 'push_pin'}</i>
-        </button>
-        <button 
-          className="note-btn edit ripple" 
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(note.id);
-          }} 
-          aria-label="Edit note"
-          title="Edit note"
-        >
-          <i className="material-icons">edit</i>
-        </button>
-        <button 
-          className="note-btn delete ripple" 
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(note.id);
-          }} 
-          aria-label="Delete note"
-          title="Delete note"
-        >
-          <i className="material-icons">delete</i>
-        </button>
-      </div>
-      {note.pinned && <div className="pin-indicator"><i className="material-icons">push_pin</i></div>}
+      {note.pinned && (
+        <div className="pin-indicator">
+          <i className="material-icons">push_pin</i>
+        </div>
+      )}
       
-      <div className="note-content-wrapper">
+      <div className="note-header">
         <h3 className="note-title">{note.title}</h3>
-        {renderContent()}
+        <div className="note-actions">
+          <button 
+            className="note-action-button options-button" 
+            onClick={toggleOptions}
+            aria-label="Note options"
+          >
+            <i className="material-icons">more_vert</i>
+          </button>
+          
+          {showOptions && (
+            <div className="note-options-menu">
+              <button onClick={handleEdit}>
+                <i className="material-icons">edit</i> Edit
+              </button>
+              {onPin && ( 
+                <button onClick={handlePin}>
+                  <i className="material-icons">{note.pinned ? 'push_pin' : 'push_pin'}</i> 
+                  {note.pinned ? 'Unpin' : 'Pin'}
+                </button>
+              )}
+              <button onClick={handleDelete}>
+                <i className="material-icons">delete</i> Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {note.category && (
+        <div className="note-category">
+          <i className="material-icons">
+            {note.category === 'Work' ? 'work' : 
+             note.category === 'Personal' ? 'person' : 
+             note.category === 'Ideas' ? 'lightbulb' : 
+             note.category === 'To-Do' ? 'check_circle' : 
+             note.category === 'Important' ? 'priority_high' : 'label'}
+          </i>
+          <span>{note.category}</span>
+        </div>
+      )}
+      
+      <div className="note-content">
+        {isExpanded ? (
+          <div 
+            className="note-full-content"
+            dangerouslySetInnerHTML={{ __html: getHtmlContent() }}
+          />
+        ) : (
+          <p className="note-preview">{getContentPreview()}</p>
+        )}
       </div>
       
       <div className="note-footer">
+        <div className="note-date">
+          {formatDate(note.updatedAt)}
+        </div>
+        
         {note.tags && note.tags.length > 0 && (
           <div className="note-tags">
             {note.tags.map((tag, index) => (
-              <span key={index} className="note-tag">
-                <i className="material-icons">local_offer</i>
-                {tag}
-              </span>
+              <span key={index} className="note-tag">#{tag}</span>
             ))}
           </div>
         )}
-        
-        <div className="note-metadata">
-          {note.category && (
-            <div className="note-category">
-              <i className="material-icons">{getCategoryIcon(note.category)}</i>
-              {note.category.charAt(0).toUpperCase() + note.category.slice(1)}
-            </div>
-          )}
-          <div className="note-date">
-            <i className="material-icons">schedule</i>
-            {formatDate(note.updatedAt)}
-          </div>
-        </div>
       </div>
     </div>
   );
-
-  // Render the modal view
-  const renderModalView = () => (
-    <>
-      <div className="note-overlay" onClick={toggleViewMode}></div>
-      <div 
-        className="note-item view-mode" 
-        style={{ backgroundColor: note.color || '#ffffff' }}
-      >
-        <h3 className="note-title">{note.title}</h3>
-        
-        <div className="note-actions">
-          <button 
-            className="note-btn pin ripple" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onPin(note.id, !note.pinned);
-            }} 
-            aria-label={note.pinned ? "Unpin note" : "Pin note"}
-            title={note.pinned ? "Unpin note" : "Pin note"}
-          >
-            <i className="material-icons">{note.pinned ? 'push_pin' : 'push_pin'}</i>
-          </button>
-          <button 
-            className="note-btn edit ripple" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(note.id);
-            }} 
-            aria-label="Edit note"
-            title="Edit note"
-          >
-            <i className="material-icons">edit</i>
-          </button>
-          <button 
-            className="note-btn delete ripple" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(note.id);
-            }} 
-            aria-label="Delete note"
-            title="Delete note"
-          >
-            <i className="material-icons">delete</i>
-          </button>
-          <button 
-            className="note-btn close ripple" 
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsViewMode(false);
-            }} 
-            aria-label="Close view"
-            title="Close view"
-          >
-            <i className="material-icons">close</i>
-          </button>
-        </div>
-        
-        <div className="note-content-wrapper">
-          {renderContent()}
-        </div>
-        
-        <div className="note-footer">
-          {note.tags && note.tags.length > 0 && (
-            <div className="note-tags">
-              {note.tags.map((tag, index) => (
-                <span key={index} className="note-tag">
-                  <i className="material-icons">local_offer</i>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-          
-          <div className="note-metadata">
-            {note.category && (
-              <div className="note-category">
-                <i className="material-icons">{getCategoryIcon(note.category)}</i>
-                {note.category.charAt(0).toUpperCase() + note.category.slice(1)}
-              </div>
-            )}
-            <div className="note-date">
-              <i className="material-icons">schedule</i>
-              {formatDate(note.updatedAt)}
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-
-  return isViewMode ? renderModalView() : renderNoteCard();
 };
 
 export default NoteItem;
