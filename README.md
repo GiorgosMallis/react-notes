@@ -54,7 +54,7 @@ The build files will be created in the `build` directory.
 
 ### Deployment
 
-The app is deployed on GitHub Pages at [https://GiorgosMallis.github.io/react-note-app](https://GiorgosMallis.github.io/react-note-app)
+The app is deployed on GitHub Pages at [https://GiorgosMallis.github.io/react-notes](https://GiorgosMallis.github.io/react-notes)
 
 To deploy your own version:
 

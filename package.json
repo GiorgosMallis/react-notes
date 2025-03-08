@@ -2,7 +2,7 @@
   "name": "react-note-app",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://GiorgosMallis.github.io/react-note-app",
+  "homepage": "https://GiorgosMallis.github.io/react-notes",
   "dependencies": {
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
